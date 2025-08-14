@@ -267,7 +267,7 @@ def render_pitch_svg(a_rows: pd.DataFrame, b_rows: pd.DataFrame,
 
     a = _ensure_positions(normalize_lineup_names(a_rows), formation_a)
     b = _ensure_positions(normalize_lineup_names(b_rows), formation_b)
-   pa = parts_of(formation_a)
+pa = parts_of(formation_a)
 pb = parts_of(formation_b)
 
 pitch = []
