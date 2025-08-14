@@ -267,42 +267,44 @@ def render_pitch_svg(a_rows: pd.DataFrame, b_rows: pd.DataFrame,
 
     a = _ensure_positions(normalize_lineup_names(a_rows), formation_a)
     b = _ensure_positions(normalize_lineup_names(b_rows), formation_b)
-    pa = parts_of(formation_a)
-    pb = parts_of(formation_b)
+   pa = parts_of(formation_a)
+pb = parts_of(formation_b)
 
-    pitch = []
-    pitch.append(f"<svg viewBox='0 0 {W} {H}' width='100%' height='100%' preserveAspectRatio='xMidYMid meet'>")
-    pitch.append("<defs>"
-                 "<linearGradient id='g' x1='0' y1='0' x2='0' y2='1'>"
-                 "<stop offset='0%' stop-color='#2f7a43'/>"
-                 "<stop offset='60%' stop-color='#2a6f3c'/>"
-                 "<stop offset='100%' stop-color='#235f34'/>"
-                 "</linearGradient>"
-                 "</defs>")
-    pitch.append(f"<rect x='0' y='0' width='{W}' height='{H}' fill='url(#g)'/>")
-    pitch.append(f"<rect x='{margin}' y='{margin}' width='{W-2*margin}' height='{H-2*margin}' fill='none' stroke='#ffffff' stroke-width='3'/>")
-    pitch.append(f"<line x1='{W/2}' y1='{margin}' x2='{W/2}' y2='{H-margin}' stroke='#ffffff' stroke-width='3'/>")
-    pitch.append(f"<circle cx='{W/2}' cy='{H/2}' r='65' fill='none' stroke='#ffffff' stroke-width='3'/>")
-    pitch.append(f"<circle cx='{W/2}' cy='{H/2}' r='4' fill='#ffffff'/>")
-    -- Left box
-    pitch.append(f"<rect x='{margin}' y='{box_top}' width='{left_box_w}' height='{box_bot-box_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
-    pitch.append(f"<rect x='{margin}' y='{six_top}' width='{six_w}' height='{six_bot-six_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
-    pitch.append(f"<line x1='{margin-goal_depth}' y1='{H/2-8}' x2='{margin}' y2='{H/2-8}' stroke='#ffffff' stroke-width='3'/>")
-    pitch.append(f"<line x1='{margin-goal_depth}' y1='{H/2+8}' x2='{margin}' y2='{H/2+8}' stroke='#ffffff' stroke-width='3'/>")
-    -- Right box
-    pitch.append(f"<rect x='{W-margin-left_box_w}' y='{box_top}' width='{left_box_w}' height='{box_bot-box_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
-    pitch.append(f"<rect x='{W-margin-six_w}' y='{six_top}' width='{six_w}' height='{six_bot-six_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
-    pitch.append(f"<line x1='{W-margin}' y1='{H/2-8}' x2='{W-margin+goal_depth}' y2='{H/2-8}' stroke='#ffffff' stroke-width='3'/>")
-    pitch.append(f"<line x1='{W-margin}' y1='{H/2+8}' x2='{W-margin+goal_depth}' y2='{H/2+8}' stroke='#ffffff' stroke-width='3'/>")
+pitch = []
+pitch.append(f"<svg viewBox='0 0 {W} {H}' width='100%' height='100%' preserveAspectRatio='xMidYMid meet'>")
+pitch.append(
+    "<defs>"
+    "<linearGradient id='g' x1='0' y1='0' x2='0' y2='1'>"
+    "<stop offset='0%' stop-color='#2f7a43'/>"
+    "<stop offset='60%' stop-color='#2a6f3c'/>"
+    "<stop offset='100%' stop-color='#235f34'/>"
+    "</linearGradient>"
+    "</defs>"
+)
+pitch.append(f"<rect x='0' y='0' width='{W}' height='{H}' fill='url(#g)'/>")
+pitch.append(f"<rect x='{margin}' y='{margin}' width='{W - 2*margin}' height='{H - 2*margin}' fill='none' stroke='#ffffff' stroke-width='3'/>")
+pitch.append(f"<line x1='{W/2}' y1='{margin}' x2='{W/2}' y2='{H - margin}' stroke='#ffffff' stroke-width='3'/>")
+pitch.append(f"<circle cx='{W/2}' cy='{H/2}' r='65' fill='none' stroke='#ffffff' stroke-width='3'/>")
+pitch.append(f"<circle cx='{W/2}' cy='{H/2}' r='4' fill='#ffffff'/>")
 
-    pitch += layout_side(a, pa, left_side=True)
-    pitch += layout_side(b, pb, left_side=False)
+# Left box
+pitch.append(f"<rect x='{margin}' y='{box_top}' width='{left_box_w}' height='{box_bot - box_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
+pitch.append(f"<rect x='{margin}' y='{six_top}' width='{six_w}' height='{six_bot - six_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
+pitch.append(f"<line x1='{margin - goal_depth}' y1='{H/2 - 8}' x2='{margin}' y2='{H/2 - 8}' stroke='#ffffff' stroke-width='3'/>")
+pitch.append(f"<line x1='{margin - goal_depth}' y1='{H/2 + 8}' x2='{margin}' y2='{H/2 + 8}' stroke='#ffffff' stroke-width='3'/>")
 
-    pitch.append("</svg>")
-    return "<div class='pitchWrap'>" + "".join(pitch) + "</div>"
+# Right box
+pitch.append(f"<rect x='{W - margin - left_box_w}' y='{box_top}' width='{left_box_w}' height='{box_bot - box_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
+pitch.append(f"<rect x='{W - margin - six_w}' y='{six_top}' width='{six_w}' height='{six_bot - six_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
+pitch.append(f"<line x1='{W - margin}' y1='{H/2 - 8}' x2='{W - margin + goal_depth}' y2='{H/2 - 8}' stroke='#ffffff' stroke-width='3'/>")
+pitch.append(f"<line x1='{W - margin}' y1='{H/2 + 8}' x2='{W - margin + goal_depth}' y2='{H/2 + 8}' stroke='#ffffff' stroke-width='3'/>")
 
-def render_match_pitch(a_rows: pd.DataFrame, b_rows: pd.DataFrame,
-                       formation_a: str, formation_b: str,
+pitch += layout_side(a, pa, left_side=True)
+pitch += layout_side(b, pb, left_side=False)
+
+pitch.append("</svg>")
+return "<div class='pitchWrap'>" + "".join(pitch) + "</div>"
+
                        motm_name: Optional[str]):
     inner = render_pitch_svg(a_rows, b_rows, formation_a, formation_b, motm_name)
     wrapper = (
