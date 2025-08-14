@@ -872,6 +872,9 @@ def page_stats():
 # -----------------------------------------------------------------------------
 # Page: Players (premium profile)
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Page: Players (premium profile) — REPLACE WHOLE FUNCTION
+# -----------------------------------------------------------------------------
 def page_players():
     header()
     players = load_table("players")
@@ -894,7 +897,8 @@ def page_players():
             st.image(p["photo_url"], width=220)
         else:
             st.markdown(
-                f"<div class='card' style='width:220px;height:220px;border-radius:16px;display:flex;align-items:center;justify-content:center;'>"
+                f"<div class='card' style='width:220px;height:220px;border-radius:16px;"
+                f"display:flex;align-items:center;justify-content:center;'>"
                 f"<div style='font-size:48px;font-weight:800'>{name_initials(sel)}</div></div>",
                 unsafe_allow_html=True
             )
@@ -915,18 +919,43 @@ def page_players():
         winpct = (w/gp*100.0) if gp else 0.0
         contrib = float(mine["contrib_pct"].mean() or 0)
 
+        # Stat cards row 1
         cc = st.columns(4)
         for label, val in [("GP",gp), ("W-D-L", f"{w}-{d}-{l}"), ("Win %", f"{winpct:.1f}%"), ("G + A", ga)]:
-            cc[0].markdown(f"<div class='statCard'><div class='statLabel'>{label}</div><div class='statValue'>{val}</div></div>", unsafe_allow_html=True); cc = cc[1:]+cc[:1]
-        cc = st.columns(4)
-        for label, val in [("Goals",g), ("Assists",a), ("Avg Contrib %", f"{contrib:.1f}%"), ("G+A / G", f\"{(ga/gp if gp else 0):.2f}\")]:
-            cc[0].markdown(f"<div class='statCard'><div class='statLabel'>{label}</div><div class='statValue'>{val}</div></div>", unsafe_allow_html=True); cc = cc[1:]+cc[:1]
+            cc[0].markdown(
+                f"<div class='statCard'><div class='statLabel'>{label}</div>"
+                f"<div class='statValue'>{val}</div></div>",
+                unsafe_allow_html=True
+            )
+            cc = cc[1:] + cc[:1]
 
-    # Ratings
+        # Stat cards row 2 (FIXED f-string here)
+        cc = st.columns(4)
+        for label, val in [
+            ("Goals", g),
+            ("Assists", a),
+            ("Avg Contrib %", f"{contrib:.1f}%"),
+            ("G+A / G", f"{(ga/gp if gp else 0):.2f}"),
+        ]:
+            cc[0].markdown(
+                f"<div class='statCard'><div class='statLabel'>{label}</div>"
+                f"<div class='statValue'>{val}</div></div>",
+                unsafe_allow_html=True
+            )
+            cc = cc[1:] + cc[:1]
+
+    # Ratings (Finishing / Playmaking / Impact / Overall)
     ratings = compute_player_ratings(fact, sel, min_gp_for_ratings=3)
     r1, r2, r3, r4 = st.columns(4)
-    for c, (lab, key) in zip([r1,r2,r3,r4], [("Finishing","Finishing"),("Playmaking","Playmaking"),("Impact","Impact"),("Overall","Overall")]):
-        c.markdown(f"<div class='statCard'><div class='statLabel'>{lab}</div><div class='statValue'>{int(ratings[key])}</div></div>", unsafe_allow_html=True)
+    for c, (lab, key) in zip(
+        [r1,r2,r3,r4],
+        [("Finishing","Finishing"),("Playmaking","Playmaking"),("Impact","Impact"),("Overall","Overall")]
+    ):
+        c.markdown(
+            f"<div class='statCard'><div class='statLabel'>{lab}</div>"
+            f"<div class='statValue'>{int(ratings[key])}</div></div>",
+            unsafe_allow_html=True
+        )
 
     # Form & recent games
     N = st.number_input("Last N games (form)", 3, 30, 5, 1, key="pf_lastN")
@@ -939,7 +968,7 @@ def page_players():
     recent = recent.rename(columns={"season":"Season","gw":"GW","team":"Team","goals":"G","assists":"A","result":"Res"})
     st.dataframe(hide_index(recent.reset_index(drop=True)), use_container_width=True)
 
-    # Player-specific Duos & Nemesis (with filters)
+    # Player-specific Duos
     st.markdown("#### Teammate Duos")
     colD1, colD2 = st.columns(2)
     with colD1:
@@ -948,6 +977,7 @@ def page_players():
         rows = st.number_input("Rows", 3, 50, 5, 1, key="duo_rows")
     duos_table(fact, min_games=int(min_joint), top_n=int(rows), player_filter=sel)
 
+    # Player-specific Nemesis
     st.markdown("#### Nemesis (most difficult opponents)")
     colN1, colN2 = st.columns(2)
     with colN1:
@@ -955,6 +985,7 @@ def page_players():
     with colN2:
         nrows = st.number_input("Rows ", 3, 50, 5, 1, key="nem_rows")
     nemesis_table(fact, min_games=int(min_meet), top_n=int(nrows), player_filter=sel)
+
 
 # -----------------------------------------------------------------------------
 # Page: Awards
