@@ -1,0 +1,7 @@
+streamlit==1.36.0
+supabase==2.6.0
+pandas==2.2.2
+numpy==1.26.4
+pillow==10.4.0
+pillow-heif==0.16.0 ; platform_system != "Linux"  # optional; HEIC depends on libheif availability
+python-dateutil==2.9.0.post0
