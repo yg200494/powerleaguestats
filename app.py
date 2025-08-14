@@ -305,7 +305,7 @@ pitch += layout_side(b, pb, left_side=False)
 pitch.append("</svg>")
 return "<div class='pitchWrap'>" + "".join(pitch) + "</div>"
 
-motm_name: Optional[str]:
+motm_name: Optional([str]):
     inner = render_pitch_svg(a_rows, b_rows, formation_a, formation_b, motm_name)
     wrapper = (
         "<html><head><meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1'/>"
