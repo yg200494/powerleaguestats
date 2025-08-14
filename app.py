@@ -252,19 +252,38 @@ def render_pitch_svg(a_rows: pd.DataFrame, b_rows: pd.DataFrame,
     goal_depth = 20
 
     # Prepare MOTM flags & photos
+       # Prepare MOTM flags & photos
     motm = (motm_name or "").strip().lower()
-    for df in (a_rows, b_rows):
+
+    def _ensure_names(df: pd.DataFrame) -> pd.DataFrame:
+        if "player_name" not in df.columns:
+            df["player_name"] = None
+        df["player_name"] = df["player_name"].fillna("").astype(str).str.strip()
         if "name" not in df.columns:
-            df["name"] = df.get("player_name")
-        df["name"] = df["name"].fillna("").astype(str)
-        df["motm"] = df["name"].str.lower().eq(motm)
-    players = load_table("players")
-    if not players.empty:
-        a_rows = a_rows.merge(players[["name","photo_url"]], on="name", how="left")
-        b_rows = b_rows.merge(players[["name","photo_url"]], on="name", how="left")
+            df["name"] = ""
+        else:
+            df["name"] = df["name"].fillna("").astype(str).str.strip()
+        mask_blank = (df["name"] == "") & (df["player_name"] != "")
+        df.loc[mask_blank, "name"] = df.loc[mask_blank, "player_name"]
+        df["name"] = df["name"].replace({"Ani":"Anirudh", "Abdullah Y13":"Mohammad Abdullah"})
+        df["player_name"] = df["name"]
+        return df
+
+    a_rows = _ensure_names(a_rows)
+    b_rows = _ensure_names(b_rows)
+
+    a_rows["motm"] = a_rows["name"].str.lower().eq(motm)
+    b_rows["motm"] = b_rows["name"].str.lower().eq(motm)
+
+    players_df = load_table("players")
+    if not players_df.empty:
+        players_df["name"] = players_df["name"].fillna("").astype(str).str.strip()
+        a_rows = a_rows.merge(players_df[["name","photo_url"]], on="name", how="left")
+        b_rows = b_rows.merge(players_df[["name","photo_url"]], on="name", how="left")
     else:
         a_rows["photo_url"] = ""
         b_rows["photo_url"] = ""
+
 
     pa = parts_of(formation_a)
     pb = parts_of(formation_b)
@@ -353,32 +372,75 @@ def insert_lineups(rows: List[Dict]):
 def build_fact(players: pd.DataFrame, matches: pd.DataFrame, lineups: pd.DataFrame) -> pd.DataFrame:
     if lineups.empty or matches.empty:
         return pd.DataFrame()
+
+    # -------- normalize names in lineups --------
     l = lineups.copy()
-    m = matches.copy()
 
-    if "name" not in l.columns: l["name"] = l.get("player_name")
-    l["name"] = l["name"].fillna("").astype(str)
+    # Ensure both columns exist as strings
+    if "player_name" not in l.columns:
+        l["player_name"] = None
+    l["player_name"] = l["player_name"].fillna("").astype(str).str.strip()
+
+    if "name" not in l.columns:
+        l["name"] = ""
+    else:
+        l["name"] = l["name"].fillna("").astype(str).str.strip()
+
+    # Use player_name whenever name is blank
+    mask_blank = (l["name"] == "") & (l["player_name"] != "")
+    l.loc[mask_blank, "name"] = l.loc[mask_blank, "player_name"]
+
+    # Apply known aliases (from your clarification)
+    alias_map = {
+        "Ani": "Anirudh",
+        "Abdullah Y13": "Mohammad Abdullah",  # distinct from 'Abdullah'
+    }
+    l["name"] = l["name"].replace(alias_map)
+    l["player_name"] = l["name"]  # keep them aligned downstream
+
+    # Coerce numeric fields
     for c in ["season","gw","goals","assists","line","slot"]:
-        if c in l.columns: l[c] = pd.to_numeric(l[c], errors="coerce").fillna(0).astype(int)
+        if c in l.columns:
+            l[c] = pd.to_numeric(l[c], errors="coerce").fillna(0).astype(int)
+        else:
+            l[c] = 0
 
+    m = matches.copy()
     for c in ["season","gw","score_a","score_b"]:
-        if c in m.columns: m[c] = pd.to_numeric(m[c], errors="coerce").fillna(0).astype(int)
+        if c in m.columns:
+            m[c] = pd.to_numeric(m[c], errors="coerce").fillna(0).astype(int)
 
-    mm = m.rename(columns={"id":"match_id"})[["match_id","season","gw","team_a","team_b","score_a","score_b","is_draw","motm_name","formation_a","formation_b"]]
+    mm = m.rename(columns={"id":"match_id"})[
+        ["match_id","season","gw","team_a","team_b","score_a","score_b","is_draw","motm_name","formation_a","formation_b"]
+    ]
+
     fact = l.merge(mm, on=["match_id","season","gw"], how="left")
 
+    # Compute per-row result for the player's team
     def wdl(r):
-        if bool(r["is_draw"]): return "D"
-        if r["team"] == "Non-bibs":
-            return "W" if r["score_a"] > r["score_b"] else "L"
-        return "W" if r["score_b"] > r["score_a"] else "L"
+        if bool(r.get("is_draw", False)):
+            return "D"
+        ta, tb = int(r.get("score_a",0)), int(r.get("score_b",0))
+        if r.get("team") == "Non-bibs":
+            return "W" if ta > tb else "L"
+        return "W" if tb > ta else "L"
+
     fact["result"] = fact.apply(wdl, axis=1)
 
+    # Team totals per match for Contribution%
     tg = fact.groupby(["match_id","team"], as_index=False).agg(team_goals=("goals","sum"))
     fact = fact.merge(tg, on=["match_id","team"], how="left")
+
     fact["ga"] = fact["goals"] + fact["assists"]
-    fact["contrib_pct"] = (fact["ga"] / fact["team_goals"].replace(0, pd.NA) * 100).fillna(0.0).round(1)
+    fact["contrib_pct"] = (
+        fact["ga"] / fact["team_goals"].replace(0, pd.NA) * 100
+    ).fillna(0.0).round(1)
+
+    # FINAL guard: drop any rows whose name is still blank
+    fact = fact[fact["name"].astype(str).str.strip() != ""].copy()
+
     return fact
+
 
 # -----------------------------
 # Header / Admin
@@ -478,6 +540,28 @@ def page_matches():
     matches = load_table("matches")
     lineups = load_table("lineups")
     players = load_table("players")
+    # --- Data Doctor: one-time repair for missing names in 'lineups' ---
+    if st.session_state.get("is_admin"):
+        with st.expander("🩺 Data Doctor: Fix empty names in lineups"):
+            st.write("If your stats show only one giant row, click **Repair names** to copy `player_name` into `name` wherever it's blank.")
+            if st.button("Repair names (safe)"):
+                lfix = load_table("lineups")
+                if lfix.empty:
+                    st.info("No lineups to fix.")
+                else:
+                    lfix["name"] = lfix["name"].fillna("").astype(str).str.strip() if "name" in lfix.columns else ""
+                    lfix["player_name"] = lfix["player_name"].fillna("").astype(str).str.strip() if "player_name" in lfix.columns else ""
+                    needs = lfix[(lfix["name"]=="") & (lfix["player_name"]!="")]
+                    if needs.empty:
+                        st.success("Nothing to fix. ✅")
+                    else:
+                        updates = [{"id": rid, "name": nm} for rid, nm in zip(needs["id"], needs["player_name"])]
+                        svc = _service()
+                        # batch upsert to set 'name' = 'player_name' for those ids
+                        for i in range(0, len(updates), 500):
+                            svc.table("lineups").upsert(updates[i:i+500], on_conflict="id").execute()
+                        st.success(f"Updated {len(updates)} rows. Refreshing…")
+                        refresh_all()
 
     # Add New Match (admin)
     if st.session_state.get("is_admin"):
