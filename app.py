@@ -1036,64 +1036,120 @@ def page_awards():
 # -----------------------------------------------------------------------------
 # Page: Player Manager
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Player Manager (ADMIN) — REPLACE WHOLE FUNCTION
+# -----------------------------------------------------------------------------
 def page_player_manager():
     header()
     if not st.session_state.get("is_admin"):
         st.info("Admin only.")
         return
 
+    # Load and normalize
     players = load_table("players")
-    players["name"] = players["name"].fillna("").astype(str).map(normalize_name)
+    if not players.empty:
+        players["name"] = players["name"].fillna("").astype(str).map(normalize_name)
 
-    c1, c2 = st.columns([2,1])
-    with c1:
-        sel = st.selectbox("Select player", players["name"].dropna().astype(str).sort_values().tolist() if not players.empty else [])
-        current = players[players["name"]==sel].iloc[0] if (not players.empty and sel) else None
-        new_name = st.text_input("Name", value=(current["name"] if current is not None else ""))
-        notes = st.text_area("Notes", value=(current.get("notes","") if current is not None else ""), height=120)
+    # UI: pick existing or add new
+    left, right = st.columns([2, 1])
+    with left:
+        options = ["➕ Add new player"] + (players["name"].dropna().astype(str).sort_values().tolist() if not players.empty else [])
+        sel = st.selectbox("Select player", options, key="pm_select")
 
-        up = st.file_uploader("Avatar (JPG/PNG/HEIC)", type=["jpg","jpeg","png","heic","HEIC"])
-        photo_url = current.get("photo_url","") if current is not None else ""
+        current = None if sel == "➕ Add new player" or players.empty else players.loc[players["name"] == sel].iloc[0]
+
+        new_name = st.text_input(
+            "Name",
+            value=(current["name"] if current is not None else ""),
+            key="pm_name",
+            placeholder="Enter player name",
+        )
+        notes = st.text_area(
+            "Notes",
+            value=(current.get("notes", "") if current is not None else ""),
+            height=120,
+            key="pm_notes",
+            placeholder="Optional notes about this player",
+        )
+
+        # Existing photo URL (if any)
+        photo_url = (current.get("photo_url") or "") if current is not None else ""
+
+        # Avatar upload (JPG/PNG/HEIC) -> PNG bytes -> Supabase Storage -> public URL
+        up = st.file_uploader(
+            "Avatar (JPG/PNG/HEIC)",
+            type=["jpg", "jpeg", "png", "heic", "HEIC"],
+            key="pm_avatar",
+            accept_multiple_files=False,
+            help="Images are center-cropped to square and optimized to 384×384 PNG",
+        )
         if up is not None:
-            img = None
-            ext = (up.name.split(".")[-1] or "").lower()
-            try:
-                if ext == "heic" and _HEIC:
-                    heif = pillow_heif.read_heif(up.read())  # type: ignore
-                    img = Image.frombytes(heif.mode, heif.size, heif.data, "raw")
-                elif ext == "heic" and not _HEIC:
-                    st.error("HEIC not supported on this host. Please upload JPG/PNG.")
-                else:
-                    img = Image.open(up).convert("RGB")
-            except Exception as e:
-                st.error(f"Image read failed: {e}")
+            img = _png_from_uploaded_file(up)  # uses pillow-heif if available
             if img is not None:
+                img = _square_thumbnail(img, size=384)
                 buf = io.BytesIO()
-                img.save(buf, format="PNG", optimize=True); buf.seek(0)
+                img.save(buf, format="PNG", optimize=True)
                 key = f"{uuid.uuid4().hex}.png"
                 try:
-                    _service().storage.from_(AVATAR_BUCKET).upload(key, buf, {"content-type":"image/png","x-upsert":"true"})
-                    public = _service().storage.from_(AVATAR_BUCKET).get_public_url(key)
-                    if isinstance(public, dict) and "publicUrl" in public: photo_url = public["publicUrl"]
-                    elif isinstance(public, str): photo_url = public
+                    photo_url = _storage_upload_png(buf.getvalue(), key)  # returns public URL
                     st.image(photo_url, width=160, caption="Uploaded")
                 except Exception as e:
                     st.error(f"Upload failed: {e}")
 
-        if st.button("Save player"):
-            if current is not None:
-                _service().table("players").update({"name": new_name.strip(), "notes": notes.strip(), "photo_url": photo_url.strip()}).eq("id", current["id"]).execute()
-            else:
-                _service().table("players").upsert({"name": new_name.strip(), "notes": notes.strip(), "photo_url": photo_url.strip()}, on_conflict="name").execute()
-            st.success("Saved.")
-            refresh_all()
+        colA, colB, colC = st.columns([1, 1, 2])
+        with colA:
+            # Clear photo
+            if st.button("Remove photo", type="secondary", key="pm_remove_photo"):
+                photo_url = ""
+        with colB:
+            # Save player (update or upsert)
+            if st.button("Save player", type="primary", key="pm_save"):
+                payload = {
+                    "name": (new_name or "").strip(),
+                    "notes": (notes or "").strip(),
+                    "photo_url": (photo_url or "").strip(),
+                }
+                try:
+                    if current is not None:
+                        _service().table("players").update(payload).eq("id", current["id"]).execute()
+                    else:
+                        _service().table("players").upsert(payload, on_conflict="name").execute()
+                    st.success("Saved.")
+                    try:
+                        refresh_all()  # your existing helper, if present
+                    except Exception:
+                        st.cache_data.clear()
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Save failed: {e}")
 
-    with c2:
-        if current is not None:
-            st.caption("Current")
-            if current.get("photo_url"): st.image(current["photo_url"], width=140)
-            else:
-                st.markdown(f"<div class='card' style='width:140px;height:140px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800'>{name_initials(current['name'])}</div>", unsafe_allow_html=True)
+    # Preview card
+    with right:
+        st.caption("Preview")
+        if sel != "➕ Add new player" and current is not None and (current.get("photo_url") or "") and up is None:
+            st.image(current["photo_url"], width=140)
+        elif (photo_url or "") and up is None:
+            st.image(photo_url, width=140)
+        else:
+            initials = name_initials((new_name or (sel if sel != "➕ Add new player" else "")))
+            st.markdown(
+                f"""
+                <div class='card' style='width:140px;height:140px;border-radius:14px;
+                display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800'>
+                {initials}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        st.write("")
+        st.markdown(
+            f"<div class='small'>Name:</div><div class='badge'>{(new_name or sel).strip()}</div>",
+            unsafe_allow_html=True,
+        )
+        if (notes or "").strip():
+            st.write("")
+            st.markdown(f"<div class='small'>Notes:</div><div class='card'>{notes.strip()}</div>", unsafe_allow_html=True)
+
 
 # -----------------------------------------------------------------------------
 # Router
