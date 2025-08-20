@@ -28,23 +28,108 @@ def _service(): return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-:root{ --bg:#0b0f14; --panel:#0f1620; --muted:#18202b; --text:#e9edf3; --sub:#9aa6b2; --gold:#f6d35f; --aqua:#57d2c8; --chip:#11161d; --border:#1a2230; }
-html,body,.stApp{background:var(--bg); color:var(--text); -webkit-text-size-adjust:100%}
-.block-container{padding-top:.6rem; padding-bottom:2rem; max-width:1200px}
-.topbar{position:sticky; top:0; z-index:50; background:var(--panel); border-bottom:1px solid var(--border); padding:10px 12px;}
+/* ============ Theme tokens ============ */
+:root{
+  --bg:#0b0f14; --panel:#0f1620; --muted:#18202b;
+  --text:#e9edf3; --sub:#9aa6b2; --gold:#f6d35f; --aqua:#57d2c8;
+  --chip:#11161d; --border:#1a2230; --accent:#1e2735;
+}
+
+/* ============ Global ============ */
+html,body,.stApp{
+  background:var(--bg); color:var(--text);
+  -webkit-text-size-adjust:100%;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  touch-action:manipulation;
+}
+.block-container{
+  padding-top:.6rem; padding-bottom:2rem; max-width:1200px;
+  padding-left:clamp(.6rem, 2.5vw, 1rem);
+  padding-right:clamp(.6rem, 2.5vw, 1rem);
+}
+
+/* iOS notch-friendly sticky header */
+.topbar{
+  position:sticky; top:0; z-index:50;
+  background:var(--panel); border-bottom:1px solid var(--border);
+  padding:calc(8px + env(safe-area-inset-top)) 12px 10px 12px;
+}
 .brand{font-weight:800; letter-spacing:.2px}
 .brand small{font-weight:400; opacity:.75; margin-left:6px}
-.pitchWrap{width:100%; max-width:980px; margin:0 auto}
-.card{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:14px}
-.statCard{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center}
+
+/* ============ Cards & badges ============ */
+.card{
+  background:var(--panel); border:1px solid var(--border);
+  border-radius:14px; padding:14px;
+}
+.statCard{
+  background:var(--panel); border:1px solid var(--border);
+  border-radius:16px; padding:14px; text-align:center;
+  box-shadow:0 4px 18px rgba(0,0,0,.18);
+}
 .statLabel{font-size:12px; color:var(--sub)}
 .statValue{font-size:20px; font-weight:800; color:var(--gold)}
-.badge{display:inline-flex; gap:6px; align-items:center; font-size:12px; background:var(--chip); border:1px solid var(--border); border-radius:999px; padding:2px 8px}
+.badge{
+  display:inline-flex; gap:6px; align-items:center;
+  font-size:12px; background:var(--chip); color:var(--text);
+  border:1px solid var(--border); border-radius:999px; padding:2px 8px;
+}
 .small{color:var(--sub); font-size:12px}
+hr.sep{border:0;border-top:1px solid var(--border);margin:10px 0 16px}
+
+/* ============ Pitch container ============ */
+.pitchWrap{
+  width:100%;
+  /* Slightly narrower than full container so two pitches fit side-by-side on desktop */
+  max-width:980px; margin:0 auto;
+}
+.pitchWrap svg{
+  max-width:100%;
+  /* keep height under control on small screens */
+  max-height:620px;
+  height:auto;
+  display:block;
+}
+
+/* Grid that can hold two team pitches side by side (desktop) or stacked (mobile) */
+.dualPitch{
+  display:grid; gap:16px;
+  grid-template-columns:1fr;
+}
+@media (min-width: 880px){
+  .dualPitch{ grid-template-columns:1fr 1fr; }
+}
+
+/* ============ Tables ============ */
 table td, table th{font-size:14px}
-hr.sep{border:0;border-top:1px solid var(--border);margin:10px 0 16px 0}
+.dataframe tbody tr:hover td { background: rgba(255,255,255,0.02); }
+
+/* ============ Form elements polish ============ */
+.stButton > button{
+  background:linear-gradient(180deg, #1a2533 0%, #0f1620 100%);
+  color:var(--text); border:1px solid var(--border);
+  border-radius:10px; padding:.5rem .9rem; font-weight:600;
+}
+.stButton > button:hover{ border-color:#2a3647 }
+.stSelectbox label, .stRadio label, .stNumberInput label, .stDateInput label{
+  color:var(--sub); font-size:.9rem;
+}
+
+/* ============ Mobile tweaks ============ */
+@media (max-width: 600px){
+  .pitchWrap svg{ max-height: 520px; }
+  .statValue{ font-size:18px }
+  .statLabel{ font-size:11px }
+}
+@media (max-width: 420px){
+  .pitchWrap svg{ max-height: 460px; }
+}
+
+/* Hide Streamlit's vertical gap around tabs on mobile for tighter layout */
+[data-testid="stTabs"] div[role="tablist"] { gap: 6px; }
 </style>
 """, unsafe_allow_html=True)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OPTIONAL HEIC SUPPORT
@@ -169,45 +254,96 @@ def normalize_matches(df: pd.DataFrame) -> pd.DataFrame:
 # ─────────────────────────────────────────────────────────────────────────────
 # PITCH SVG (separate pitches; large avatars; non-overlapping chips)
 # ─────────────────────────────────────────────────────────────────────────────
+def ensure_positions(df_team: pd.DataFrame, formation: str) -> pd.DataFrame:
+    """Return a copy where any missing line/slot are auto-filled by formation order.
+       GK stays GK (first line near goal), others fill left→right, back→front."""
+    if df_team is None or df_team.empty:
+        return pd.DataFrame(columns=df_team.columns if df_team is not None else ["name","is_gk","goals","assists","line","slot","photo_url"])
+
+    out = df_team.copy()
+    out["name"] = out.get("name", pd.Series(index=out.index)).fillna(out.get("player_name")).fillna("").astype(str).map(normalize_name)
+    out["line"] = pd.to_numeric(out.get("line"), errors="coerce").fillna(0).astype(int)
+    out["slot"] = pd.to_numeric(out.get("slot"), errors="coerce").fillna(0).astype(int)
+    out["goals"] = pd.to_numeric(out.get("goals"), errors="coerce").fillna(0).astype(int)
+    out["assists"] = pd.to_numeric(out.get("assists"), errors="coerce").fillna(0).astype(int)
+    out["is_gk"] = out.get("is_gk", False)
+    if out["is_gk"].dtype != bool:
+        out["is_gk"] = out["is_gk"].astype(str).str.lower().isin(["1","true","t","yes","y"])
+    if "photo_url" not in out.columns: out["photo_url"] = ""
+
+    slots = [(0,1)]  # GK virtual slot (line=0, slot=1)
+    slots += lineup_slots(formation)
+    taken = {(int(r["line"]), int(r["slot"])) for _, r in out.iterrows() if int(r["line"])>0 and int(r["slot"])>0}
+    gk_rows = out[out["is_gk"] == True].index.tolist()
+    non_gk  = out[out["is_gk"] != True].index.tolist()
+
+    # Assign GK if needed (line=0, slot=1)
+    if gk_rows:
+        gi = gk_rows[0]
+        if not (out.at[gi, "line"]==0 and out.at[gi, "slot"]==1):
+            out.at[gi, "line"] = 0
+            out.at[gi, "slot"] = 1
+
+    # Fill remaining outfielders
+    ptr = 0
+    ordered_slots = [s for s in slots if s != (0,1)]
+    for idx in non_gk:
+        li = int(out.at[idx, "line"]); s = int(out.at[idx, "slot"])
+        if li>0 and s>0 and (li,s) in taken:  # already a valid unique placement
+            continue
+        # find first free slot
+        while ptr < len(ordered_slots) and ordered_slots[ptr] in taken:
+            ptr += 1
+        if ptr < len(ordered_slots):
+            li2, s2 = ordered_slots[ptr]
+            out.at[idx, "line"], out.at[idx, "slot"] = int(li2), int(s2)
+            taken.add((li2, s2))
+            ptr += 1
+        else:
+            # fallback: last line, next slot number
+            out.at[idx, "line"], out.at[idx, "slot"] = len(parts_of(formation)), 99
+
+    return out
+
 def _display_name(n: str, max_len=14) -> str:
     n = (n or "").strip()
     return n if len(n) <= max_len else (n[:max_len-1] + "…")
 
 def svg_chip(text: str, accent="#f6d35f") -> str:
-    w = max(28, 10 + 7*len(text))
+    w = max(26, 10 + 7*len(text))
     return (
-        f"<g><rect rx='10' ry='10' x='{-(w//2)}' y='-12' width='{w}' height='24' fill='#0e1319' stroke='#1b2430'/>"
-        f"<text x='0' y='6' text-anchor='middle' font-size='12' fill='{accent}'>{text}</text></g>"
+        f"<g><rect rx='9' ry='9' x='{-(w//2)}' y='-11' width='{w}' height='22' fill='#0e1319' stroke='#1b2430'/>"
+        f"<text x='0' y='5' text-anchor='middle' font-size='11' fill='{accent}'>{text}</text></g>"
     )
 def chip_goal(n: int)   -> str: return svg_chip(f"{n}g", "#f6d35f")
 def chip_assist(n: int) -> str: return svg_chip(f"{n}a", "#57d2c8")
 
 def _player_node(x: float, y: float, name: str, goals: int, assists: int,
-                 motm: bool, photo_url: str, r: int = 34) -> List[str]:
+                 motm: bool, photo_url: str, r: int = 36) -> List[str]:
     initials = name_initials(name)
     name_disp = _display_name(name, 16)
     clip_id = uuid.uuid4().hex
 
-    # chips placed side-by-side below the avatar; single chip centered
     chips_html = ""
     if goals>0 and assists>0:
         chips_html = (
-            f"<g transform='translate({x-28},{y+r+10})'>{chip_goal(goals)}</g>"
-            f"<g transform='translate({x+28},{y+r+10})'>{chip_assist(assists)}</g>"
+            f"<g transform='translate({x-28},{y+r+12})'>{chip_goal(goals)}</g>"
+            f"<g transform='translate({x+28},{y+r+12})'>{chip_assist(assists)}</g>"
         )
     elif goals>0:
-        chips_html = f"<g transform='translate({x},{y+r+10})'>{chip_goal(goals)}</g>"
+        chips_html = f"<g transform='translate({x},{y+r+12})'>{chip_goal(goals)}</g>"
     elif assists>0:
-        chips_html = f"<g transform='translate({x},{y+r+10})'>{chip_assist(assists)}</g>"
+        chips_html = f"<g transform='translate({x},{y+r+12})'>{chip_assist(assists)}</g>"
 
-    star = (f"<circle cx='{x+22}' cy='{y-22}' r='12' fill='#f6d35f'/>"
-            f"<text x='{x+22}' y='{y-18}' text-anchor='middle' font-size='12' font-weight='800' fill='#000'>★</text>") if motm else ""
+    star = (f"<circle cx='{x+24}' cy='{y-24}' r='12' fill='#f6d35f'/>"
+            f"<text x='{x+24}' y='{y-19}' text-anchor='middle' font-size='12' font-weight='800' fill='#000'>★</text>") if motm else ""
 
     if photo_url:
         avatar = (
             f"<clipPath id='clip_{clip_id}'><circle cx='{x}' cy='{y}' r='{r}'/></clipPath>"
             f"<image href='{photo_url}' x='{x-r}' y='{y-r}' width='{2*r}' height='{2*r}' "
             f"preserveAspectRatio='xMidYMid slice' clip-path='url(#clip_{clip_id})' />"
+            f"<circle cx='{x}' cy='{y}' r='{r}' fill='none' stroke='#2a3647' stroke-width='1'/>"
         )
     else:
         avatar = (
@@ -215,12 +351,14 @@ def _player_node(x: float, y: float, name: str, goals: int, assists: int,
             f"<text x='{x}' y='{y+8}' text-anchor='middle' font-size='18' font-weight='700' fill='#e7eaf0'>{initials}</text>"
         )
 
-    name_text = f"<text x='{x}' y='{y+r+36}' text-anchor='middle' font-size='12' fill='#ffffff'>{name_disp}</text>"
+    name_text = f"<text x='{x}' y='{y+r+38}' text-anchor='middle' font-size='12' fill='#ffffff'>{name_disp}</text>"
     return [star, avatar, chips_html, name_text]
 
-def team_pitch_svg(rows: pd.DataFrame, formation: str, motm_name: Optional[str], left_side: bool) -> str:
-    W, H = 980, 600
-    margin = 30
+def team_pitch_svg(raw_rows: pd.DataFrame, formation: str, motm_name: Optional[str], left_side: bool) -> str:
+    """Premium FotMob-style half-pitch for one team; GK clearly placed; no overlaps."""
+    rows = ensure_positions(raw_rows, formation)
+    W, H = 980, 620
+    margin = 32
     box_top = H*0.20; box_bot = H*0.80
     six_top = H*0.32; six_bot = H*0.68
     left_box_w = 120; six_w = 55; goal_depth = 14
@@ -238,12 +376,12 @@ def team_pitch_svg(rows: pd.DataFrame, formation: str, motm_name: Optional[str],
     pitch.append(f"<line x1='{W/2}' y1='{margin}' x2='{W/2}' y2='{H-margin}' stroke='#ffffff' stroke-width='3'/>")
     pitch.append(f"<circle cx='{W/2}' cy='{H/2}' r='65' fill='none' stroke='#ffffff' stroke-width='3'/>")
     pitch.append(f"<circle cx='{W/2}' cy='{H/2}' r='4' fill='#ffffff'/>")
-    # left box
+    # Left box
     pitch.append(f"<rect x='{margin}' y='{box_top}' width='{left_box_w}' height='{box_bot-box_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
     pitch.append(f"<rect x='{margin}' y='{six_top}' width='{six_w}' height='{six_bot-six_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
     pitch.append(f"<line x1='{margin-goal_depth}' y1='{H/2-8}' x2='{margin}' y2='{H/2-8}' stroke='#ffffff' stroke-width='3'/>")
     pitch.append(f"<line x1='{margin-goal_depth}' y1='{H/2+8}' x2='{margin}' y2='{H/2+8}' stroke='#ffffff' stroke-width='3'/>")
-    # right box
+    # Right box
     pitch.append(f"<rect x='{W-margin-left_box_w}' y='{box_top}' width='{left_box_w}' height='{box_bot-box_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
     pitch.append(f"<rect x='{W-margin-six_w}' y='{six_top}' width='{six_w}' height='{six_bot-six_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
     pitch.append(f"<line x1='{W-margin}' y1='{H/2-8}' x2='{W-margin+goal_depth}' y2='{H/2-8}' stroke='#ffffff' stroke-width='3'/>")
@@ -251,12 +389,12 @@ def team_pitch_svg(rows: pd.DataFrame, formation: str, motm_name: Optional[str],
 
     if rows is not None and not rows.empty:
         usable_w = (W - 2*margin) / 2
-        side_x0   = margin if left_side else (W/2)
-        side_x1   = (W/2) if left_side else (W - margin)
-        total_lines = len(parts) + 1  # GK line + outfield lines
+        side_x0  = margin if left_side else (W/2)
+        side_x1  = (W/2) if left_side else (W - margin)
+        total_lines = len(parts) + 1  # GK + lines
         y_step = (H - 2*margin) / (total_lines + 1)
 
-        # GK
+        # GK (line=0)
         gk = rows[rows["is_gk"] == True]
         if not gk.empty:
             r = gk.iloc[0]
@@ -265,10 +403,10 @@ def team_pitch_svg(rows: pd.DataFrame, formation: str, motm_name: Optional[str],
             pitch += _player_node(
                 gx, gy, r["name"], int(r["goals"]), int(r["assists"]),
                 (motm_name or "").strip().lower() == r["name"].strip().lower(),
-                str(r.get("photo_url") or "")
+                str(r.get("photo_url") or ""), r=38
             )
 
-        # Outfield
+        # Outfield lines
         cur_y = margin + (2 * y_step)
         for li, cnt in enumerate(parts, start=1):
             xgap = (side_x1 - side_x0) / (cnt + 1)
@@ -288,7 +426,7 @@ def team_pitch_svg(rows: pd.DataFrame, formation: str, motm_name: Optional[str],
     pitch.append("</svg>")
     return "<div class='pitchWrap'>" + "".join(pitch) + "</div>"
 
-def render_team_pitch(rows: pd.DataFrame, formation: str, motm_name: Optional[str], left_side: bool, height: int = 600):
+def render_team_pitch(rows: pd.DataFrame, formation: str, motm_name: Optional[str], left_side: bool, height: int = 620):
     inner = team_pitch_svg(rows, formation, motm_name, left_side)
     wrapper = ("<html><head><meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1'/>"
                "<style>html,body{margin:0;padding:0;background:transparent}</style></head>"
@@ -302,29 +440,35 @@ def render_team_pitch(rows: pd.DataFrame, formation: str, motm_name: Optional[st
 def build_fact(players: pd.DataFrame, matches: pd.DataFrame, lineups: pd.DataFrame) -> pd.DataFrame:
     l = normalize_lineups(lineups)
     m = normalize_matches(matches)
+
+    # Early empty-safe frame with required columns
+    base_cols = ["match_id","season","gw","team","name","goals","assists","result","contrib_pct","photo_url"]
     if l.empty or m.empty:
-        return pd.DataFrame(columns=["match_id","season","gw","team","name","goals","assists","result","contrib_pct","photo_url"])
+        return pd.DataFrame(columns=base_cols)
 
     j = l.merge(
         m[["id","season","gw","team_a","team_b","score_a","score_b","is_draw","motm_name"]],
         left_on="match_id", right_on="id", how="left"
     ).rename(columns={"id":"match_id"})
 
-    # ensure scalar 1-D columns for groupby
+    # Coerce/clean for safe groupby & math
     j["team"]     = j["team"].astype(str)
     j["match_id"] = j["match_id"].astype(str)
+    j["season"]   = pd.to_numeric(j.get("season"), errors="coerce").astype("Int64")
+    j["gw"]       = pd.to_numeric(j.get("gw"), errors="coerce").astype("Int64")
     j["goals"]    = pd.to_numeric(j["goals"], errors="coerce").fillna(0).astype(int)
     j["assists"]  = pd.to_numeric(j["assists"], errors="coerce").fillna(0).astype(int)
-    j["name"]     = j["name"].astype(str).map(normalize_name)
+    j["name"]     = j.get("name", pd.Series(index=j.index)).fillna(j.get("player_name")).fillna("").astype(str).map(normalize_name)
+    j["score_a"]  = pd.to_numeric(j.get("score_a"), errors="coerce").fillna(0).astype(int)
+    j["score_b"]  = pd.to_numeric(j.get("score_b"), errors="coerce").fillna(0).astype(int)
+    j["is_draw"]  = j.get("is_draw", False).astype(bool)
 
     def row_result(row):
-        if bool(row.get("is_draw")) or (
-           pd.notna(row.get("score_a")) and pd.notna(row.get("score_b")) and int(row["score_a"]) == int(row["score_b"])
-        ):
+        if row["is_draw"] or row["score_a"] == row["score_b"]:
             return "D"
         if row["team"] == "Non-bibs":
-            return "W" if int(row["score_a"]) > int(row["score_b"]) else "L"
-        return "W" if int(row["score_b"]) > int(row["score_a"]) else "L"
+            return "W" if row["score_a"] > row["score_b"] else "L"
+        return "W" if row["score_b"] > row["score_a"] else "L"
 
     j["result"] = j.apply(row_result, axis=1)
 
@@ -332,15 +476,19 @@ def build_fact(players: pd.DataFrame, matches: pd.DataFrame, lineups: pd.DataFra
     j = j.merge(tg, on=["match_id","team"], how="left")
     j["contrib_pct"] = ((j["goals"] + j["assists"]) / j["team_goals"].replace(0, pd.NA) * 100).round(1).fillna(0)
 
-    # attach photos
-    if not players.empty and {"name","photo_url"}.issubset(set(players.columns)):
+    # attach photos if present
+    if not players.empty and {"name","photo_url"}.issubset(players.columns):
         pp = players[["name","photo_url"]].copy()
         pp["name"] = pp["name"].astype(str).map(normalize_name)
         j = j.merge(pp, on="name", how="left")
     else:
         j["photo_url"] = ""
 
-    return j
+    # keep only expected columns (and ensure exist)
+    for c in base_cols:
+        if c not in j.columns: j[c] = pd.NA
+    return j[base_cols]
+
 
 def _scale_0_99(series, floor=35, ceil=95):
     if len(series) == 0 or series.max() == series.min():
@@ -605,9 +753,13 @@ def page_stats():
     matches = normalize_matches(load_table("matches"))
     lineups = normalize_lineups(load_table("lineups"))
     fact = build_fact(players, matches, lineups)
-    if fact.empty: st.info("No stats yet."); return
 
-    seasons = ["All"] + sorted([int(s) for s in fact["season"].dropna().unique().tolist()])
+    if matches.empty or fact.empty:
+        st.info("No stats yet."); return
+
+    # seasons list from matches (never KeyError)
+    seasons = ["All"] + sorted([int(s) for s in matches["season"].dropna().unique().tolist()])
+
     c1, c2, c3, c4 = st.columns(4)
     with c1: sel_season = st.selectbox("Season", seasons, index=0)
     with c2: min_gp     = st.number_input("Min games", 1, 50, 3, 1)
@@ -617,26 +769,28 @@ def page_stats():
     df = fact.copy()
     if sel_season != "All": df = df[df["season"] == int(sel_season)]
     if last_n and last_n > 0:
-        df = df.sort_values(["season","gw"]).groupby("name").tail(int(last_n))
+        df = df.sort_values(["season","gw"]).groupby("name", as_index=False).tail(int(last_n))
 
-    agg = df.groupby("name").agg(
+    agg = df.groupby("name", as_index=False).agg(
         GP=("match_id","nunique"),
-        W=("result", lambda s: (s=="W").sum()),
-        D=("result", lambda s: (s=="D").sum()),
-        L=("result", lambda s: (s=="L").sum()),
+        W=("result", lambda s: int((s=="W").sum())),
+        D=("result", lambda s: int((s=="D").sum())),
+        L=("result", lambda s: int((s=="L").sum())),
         goals=("goals","sum"),
         assists=("assists","sum"),
-        contrib=("contrib_pct","mean")
-    ).reset_index()
-    agg["Win%"] = (agg["W"] / agg["GP"] * 100).round(1)
+        contrib=("contrib_pct","mean"),
+    )
+    agg["Win%"] = (agg["W"] / agg["GP"] * 100).round(1).fillna(0)
     agg["G+A"]  = agg["goals"] + agg["assists"]
-    agg["Contribution%"] = agg["contrib"].round(1)
+    agg["Contribution%"] = agg["contrib"].round(1).fillna(0)
     agg = agg.drop(columns=["contrib"])
     sort_by = {"G+A":"G+A","Goals":"goals","Assists":"assists","Contribution%":"Contribution%","Win%":"Win%"}[metric]
     agg = agg[agg["GP"] >= int(min_gp)].sort_values([sort_by,"GP"], ascending=[False, False])
 
     nice = agg.rename(columns={"name":"Player","goals":"G","assists":"A"})
-    st.dataframe(nice[["Player","GP","W","D","L","Win%","G","A","G+A","Contribution%"]], use_container_width=True, hide_index=True)
+    st.dataframe(nice[["Player","GP","W","D","L","Win%","G","A","G+A","Contribution%"]],
+                 use_container_width=True, hide_index=True)
+
 
 def page_players():
     players = load_table("players")
