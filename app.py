@@ -49,6 +49,70 @@ if not SUPABASE_URL or not SUPABASE_ANON_KEY:
 
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 sb_write: Optional[Client] = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else None
+# ===== Image / Storage helpers (paste after imports and secrets) =====
+import io
+from PIL import Image
+
+# Try HEIC support, but make it optional
+try:
+    import pillow_heif  # type: ignore
+    _HEIC = True
+except Exception:
+    pillow_heif = None
+    _HEIC = False
+
+def _png_from_uploaded_file(upfile) -> Image.Image | None:
+    """
+    Convert an uploaded file (JPG/PNG/HEIC) to a PIL RGB image.
+    Returns None and shows a Streamlit error if read fails or HEIC unsupported.
+    """
+    try:
+        filename = (getattr(upfile, "name", "") or "").lower()
+        ext = filename.split(".")[-1] if "." in filename else ""
+        if ext in ("heic", "HEIC"):
+            if _HEIC and pillow_heif is not None:
+                heif = pillow_heif.read_heif(upfile.read())  # raw bytes -> HEIF
+                return Image.frombytes(heif.mode, heif.size, heif.data, "raw").convert("RGB")
+            else:
+                st.error("HEIC not supported on this host. Please upload a JPG or PNG.")
+                return None
+        # Fallback: JPG/PNG (and most other Pillow-supported formats)
+        return Image.open(upfile).convert("RGB")
+    except Exception as e:
+        st.error(f"Image read failed: {e}")
+        return None
+
+def _square_thumbnail(img: Image.Image, size: int = 384) -> Image.Image:
+    """
+    Center-crop to a square, then resize to a consistent avatar size (default 384px).
+    """
+    w, h = img.size
+    side = min(w, h)
+    left = (w - side) // 2
+    top = (h - side) // 2
+    img = img.crop((left, top, left + side, top + side))
+    return img.resize((size, size))
+
+def _storage_upload_png(bytes_data: bytes, key: str) -> str:
+    """
+    Upload PNG bytes to Supabase Storage and return a PUBLIC URL.
+    Works with supabase-py v1 and v2.
+    Requires: AVATAR_BUCKET and a `_service()` function that returns a service-role client.
+    """
+    storage = _service().storage.from_(AVATAR_BUCKET)  # uses your existing _service()
+    # Try both signatures (SDK variations)
+    try:
+        # supabase-py v1 style
+        storage.upload(key, bytes_data, {"content-type": "image/png", "x-upsert": "true"})
+    except TypeError:
+        # supabase-py v2 style
+        storage.upload(path=key, file=bytes_data, file_options={"contentType": "image/png", "upsert": "true"})
+    # Public URL can be a dict or string depending on SDK
+    pub = storage.get_public_url(key)
+    if isinstance(pub, dict) and "publicUrl" in pub:
+        return pub["publicUrl"]
+    return str(pub)
+# ===== end helpers =====
 
 # -----------------------------------------------------------------------------
 # Theme / CSS (Black & Gold)
