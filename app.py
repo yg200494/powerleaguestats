@@ -5,10 +5,11 @@ from typing import List, Optional, Tuple
 import pandas as pd
 import streamlit as st
 from PIL import Image
+from supabase import create_client
 
-# ==============================
-# CONFIG / SECRETS
-# ==============================
+# =============================================================================
+# CONFIG
+# =============================================================================
 st.set_page_config(page_title="Powerleague Stats", layout="wide", initial_sidebar_state="collapsed")
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -17,11 +18,9 @@ SUPABASE_SERVICE_KEY = st.secrets["SUPABASE_SERVICE_KEY"]
 ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 AVATAR_BUCKET = st.secrets.get("AVATAR_BUCKET", "avatars")
 
-# ==============================
-# SUPABASE CLIENTS (v1/v2 safe)
-# ==============================
-from supabase import create_client
-
+# =============================================================================
+# SUPABASE
+# =============================================================================
 @st.cache_resource
 def _client():
     return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
@@ -30,9 +29,9 @@ def _client():
 def _service():
     return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-# ==============================
-# CSS (black+gold theme)
-# ==============================
+# =============================================================================
+# THEME / CSS (black+gold, mobile-first)
+# =============================================================================
 CSS = """
 <style>
 :root{
@@ -53,17 +52,16 @@ html,body,.stApp{background:var(--bg); color:var(--text); -webkit-text-size-adju
 .badge{display:inline-flex; gap:6px; align-items:center; font-size:12px; background:var(--chip);
   border:1px solid var(--border); border-radius:999px; padding:2px 8px}
 .small{color:var(--sub); font-size:12px}
-.stTabs [data-baseweb="tab-list"]{gap:6px}
-.stTabs [data-baseweb="tab"]{background:var(--panel); border-radius:10px 10px 0 0}
 .stDataFrame, .stDataFrame div{color:var(--text) !important}
 table td, table th{font-size:14px}
+hr.sep{border:0;border-top:1px solid var(--border);margin:10px 0 16px 0}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
 
-# ==============================
+# =============================================================================
 # OPTIONAL HEIC SUPPORT
-# ==============================
+# =============================================================================
 try:
     import pillow_heif  # type: ignore
     _HEIC = True
@@ -71,13 +69,11 @@ except Exception:
     pillow_heif = None
     _HEIC = False
 
-# ==============================
+# =============================================================================
 # HELPERS
-# ==============================
+# =============================================================================
 def normalize_name(n: str) -> str:
-    n = (n or "").strip()
-    # keep original case for display; normalization only trims
-    return n
+    return (n or "").strip()
 
 def name_initials(name: str) -> str:
     parts = [p for p in (name or "").split() if p]
@@ -95,29 +91,24 @@ def load_table(name: str) -> pd.DataFrame:
 def refresh_all():
     st.cache_data.clear()
 
-def hide_index(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df.index = range(1, len(df) + 1)
-    return df
-
-# ---------- Image/Storage helpers ----------
-def _png_from_uploaded_file(upfile) -> Image.Image | None:
+# ---------- Image / Storage ----------
+def _png_from_uploaded_file(upfile) -> Optional[Image.Image]:
     try:
         filename = (getattr(upfile, "name", "") or "").lower()
         ext = filename.split(".")[-1] if "." in filename else ""
-        if ext in ("heic", "HEIC"):
+        if ext == "heic":
             if _HEIC and pillow_heif is not None:
                 heif = pillow_heif.read_heif(upfile.read())
                 return Image.frombytes(heif.mode, heif.size, heif.data, "raw").convert("RGB")
             else:
-                st.error("HEIC not supported on this host. Please upload JPG or PNG.")
+                st.error("HEIC not supported on this host. Please upload JPG/PNG.")
                 return None
         return Image.open(upfile).convert("RGB")
     except Exception as e:
         st.error(f"Image read failed: {e}")
         return None
 
-def _square_thumbnail(img: Image.Image, size: int = 384) -> Image.Image:
+def _square_thumbnail(img: Image.Image, size: int = 420) -> Image.Image:
     w, h = img.size
     side = min(w, h)
     left = (w - side) // 2
@@ -136,7 +127,7 @@ def _storage_upload_png(bytes_data: bytes, key: str) -> str:
         return pub["publicUrl"]
     return str(pub)
 
-# ---------- Formation / slots ----------
+# ---------- Formation ----------
 def default_formation_for(side_count: int) -> str:
     return "1-2-1" if side_count == 5 else "2-1-2-1"
 
@@ -156,7 +147,9 @@ def lineup_slots(formation: str) -> List[Tuple[int,int]]:
             slots.append((li, s))
     return slots
 
-# ---------- Pitch SVG helpers ----------
+# =============================================================================
+# PITCH SVG (separate team pitch, large avatars, no overlap)
+# =============================================================================
 def _display_name(n: str, max_len=14) -> str:
     n = (n or "").strip()
     return n if len(n) <= max_len else (n[:max_len-1] + "…")
@@ -165,9 +158,9 @@ def svg_chip(text: str, accent="#f6d35f") -> str:
     w = max(28, 10 + 6*len(text))
     return (
         f"<g>"
-        f"<rect rx='10' ry='10' x='{-(w//2)}' y='-10' width='{w}' height='20' "
+        f"<rect rx='10' ry='10' x='{-(w//2)}' y='-11' width='{w}' height='22' "
         f"fill='#0e1319' stroke='#1b2430'/>"
-        f"<text x='0' y='5' text-anchor='middle' font-size='11' fill='{accent}'>{text}</text>"
+        f"<text x='0' y='5' text-anchor='middle' font-size='12' fill='{accent}'>{text}</text>"
         f"</g>"
     )
 
@@ -181,7 +174,7 @@ def _player_node(x: float, y: float, name: str, goals: int, assists: int,
                  motm: bool, photo_url: str) -> List[str]:
     initials = name_initials(name)
     name_disp = _display_name(name, 14)
-    r = 26
+    r = 30  # bigger avatars
     chip_gap = 8
     clip_id = uuid.uuid4().hex
 
@@ -190,8 +183,8 @@ def _player_node(x: float, y: float, name: str, goals: int, assists: int,
         a = chip_assist(assists) if assists>0 else ""
         if goals>0 and assists>0:
             return (
-                f"<g transform='translate({x-24},{y+r+chip_gap})'>{g}</g>"
-                f"<g transform='translate({x+24},{y+r+chip_gap})'>{a}</g>"
+                f"<g transform='translate({x-26},{y+r+chip_gap})'>{g}</g>"
+                f"<g transform='translate({x+26},{y+r+chip_gap})'>{a}</g>"
             )
         elif goals>0:
             return f"<g transform='translate({x},{y+r+chip_gap})'>{g}</g>"
@@ -199,7 +192,9 @@ def _player_node(x: float, y: float, name: str, goals: int, assists: int,
             return f"<g transform='translate({x},{y+r+chip_gap})'>{a}</g>"
         return ""
 
-    star = f"<circle cx='{x+18}' cy='{y-18}' r='9' fill='#f6d35f'/>" if motm else ""
+    star = (f"<circle cx='{x+20}' cy='{y-20}' r='10' fill='#f6d35f'/>"
+            f"<text x='{x+20}' y='{y-16}' text-anchor='middle' font-size='12' font-weight='800' fill='#000'>★</text>"
+            ) if motm else ""
 
     if photo_url:
         avatar = (
@@ -209,15 +204,15 @@ def _player_node(x: float, y: float, name: str, goals: int, assists: int,
     else:
         avatar = (
             f"<circle cx='{x}' cy='{y}' r='{r}' fill='#1a2230' stroke='#2a3647' stroke-width='1'/>"
-            f"<text x='{x}' y='{y+6}' text-anchor='middle' font-size='14' font-weight='700' fill='#e7eaf0'>{initials}</text>"
+            f"<text x='{x}' y='{y+7}' text-anchor='middle' font-size='16' font-weight='700' fill='#e7eaf0'>{initials}</text>"
         )
 
-    name_text = f"<text x='{x}' y='{y+r+28}' text-anchor='middle' font-size='12' fill='#ffffff'>{name_disp}</text>"
+    name_text = f"<text x='{x}' y='{y+r+30}' text-anchor='middle' font-size='12' fill='#ffffff'>{name_disp}</text>"
     return [star, avatar, chips(), name_text]
 
-def render_pitch_svg(a_rows: pd.DataFrame, b_rows: pd.DataFrame,
-                     formation_a: str, formation_b: str, motm_name: Optional[str]) -> str:
-    W, H = 940, 560
+def team_pitch_svg(rows: pd.DataFrame, formation: str, motm_name: Optional[str], left_side: bool) -> str:
+    """Draw a full pitch but only populate one half; stacks well on mobile."""
+    W, H = 940, 520
     margin = 28
     box_top = H*0.20
     box_bot = H*0.80
@@ -227,8 +222,7 @@ def render_pitch_svg(a_rows: pd.DataFrame, b_rows: pd.DataFrame,
     six_w = 55
     goal_depth = 14
 
-    pa = parts_of(formation_a)
-    pb = parts_of(formation_b)
+    parts = parts_of(formation)
 
     pitch = []
     pitch.append(f"<svg viewBox='0 0 {W} {H}' width='100%' height='100%' preserveAspectRatio='xMidYMid meet'>")
@@ -245,25 +239,20 @@ def render_pitch_svg(a_rows: pd.DataFrame, b_rows: pd.DataFrame,
     pitch.append(f"<circle cx='{W/2}' cy='{H/2}' r='65' fill='none' stroke='#ffffff' stroke-width='3'/>")
     pitch.append(f"<circle cx='{W/2}' cy='{H/2}' r='4' fill='#ffffff'/>")
 
-    # Left box
+    # Boxes
+    # Left
     pitch.append(f"<rect x='{margin}' y='{box_top}' width='{left_box_w}' height='{box_bot - box_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
     pitch.append(f"<rect x='{margin}' y='{six_top}' width='{six_w}' height='{six_bot - six_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
     pitch.append(f"<line x1='{margin - goal_depth}' y1='{H/2 - 8}' x2='{margin}' y2='{H/2 - 8}' stroke='#ffffff' stroke-width='3'/>")
     pitch.append(f"<line x1='{margin - goal_depth}' y1='{H/2 + 8}' x2='{margin}' y2='{H/2 + 8}' stroke='#ffffff' stroke-width='3'/>")
-
-    # Right box
+    # Right
     pitch.append(f"<rect x='{W - margin - left_box_w}' y='{box_top}' width='{left_box_w}' height='{box_bot - box_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
     pitch.append(f"<rect x='{W - margin - six_w}' y='{six_top}' width='{six_w}' height='{six_bot - six_top}' fill='none' stroke='#ffffff' stroke-width='3'/>")
     pitch.append(f"<line x1='{W - margin}' y1='{H/2 - 8}' x2='{W - margin + goal_depth}' y2='{H/2 - 8}' stroke='#ffffff' stroke-width='3'/>")
     pitch.append(f"<line x1='{W - margin}' y1='{H/2 + 8}' x2='{W - margin + goal_depth}' y2='{H/2 + 8}' stroke='#ffffff' stroke-width='3'/>")
 
-    # Layout helpers
-    def layout_side(rows: pd.DataFrame, parts: List[int], left_side: bool) -> List[str]:
-        if rows is None or rows.empty:
-            return []
-        out = []
-        # GK in line 1, centered at penalty spot area horizontally
-        # spread lines evenly along half pitch
+    # Layout only one half
+    if rows is not None and not rows.empty:
         half_w = (W - 2*margin) / 2
         x_left = margin
         x_right = W - margin
@@ -271,72 +260,60 @@ def render_pitch_svg(a_rows: pd.DataFrame, b_rows: pd.DataFrame,
         side_x1 = W/2 if left_side else x_right
         usable_w = (side_x1 - side_x0)
         usable_h = (H - 2*margin)
-        # Y positions per line (include GK line)
-        total_lines = len(parts) + 1  # GK + lines
+        total_lines = len(parts) + 1  # GK + others
         y_step = usable_h / (total_lines + 1)
 
         # GK
-        gk = rows[rows["is_gk"] == True]
+        gk = rows[rows.get("is_gk", False) == True]
         if not gk.empty:
             gkr = gk.iloc[0]
             gx = side_x0 + (usable_w*0.12 if left_side else usable_w*0.88)
             gy = margin + y_step
-            node = _player_node(
+            pitch += _player_node(
                 gx, gy,
                 str(gkr.get("name") or gkr.get("player_name") or ""),
                 int(gkr.get("goals") or 0),
                 int(gkr.get("assists") or 0),
-                motm_name == (gkr.get("name") or gkr.get("player_name")),
+                (motm_name or "") == (gkr.get("name") or gkr.get("player_name")),
                 str(gkr.get("photo_url") or "")
             )
-            out += node
 
         # Other lines
         cur_y = margin + (2 * y_step)
         for li, cnt in enumerate(parts, start=1):
-            # evenly spread x, center a single player
             for s in range(1, cnt+1):
-                # find matching row
-                r = rows[(rows["line"] == li) & (rows["slot"] == s)]
+                r = rows[(rows.get("line")==li) & (rows.get("slot")==s)]
                 if r.empty:
                     continue
                 rr = r.iloc[0]
-                # spread horizontally across half
                 xgap = usable_w / (cnt + 1)
                 x = side_x0 + xgap * s
                 y = cur_y
-                node = _player_node(
+                pitch += _player_node(
                     x, y,
                     str(rr.get("name") or rr.get("player_name") or ""),
                     int(rr.get("goals") or 0),
                     int(rr.get("assists") or 0),
-                    motm_name == (rr.get("name") or rr.get("player_name")),
+                    (motm_name or "") == (rr.get("name") or rr.get("player_name")),
                     str(rr.get("photo_url") or "")
                 )
-                out += node
             cur_y += y_step
-        return out
-
-    pitch += layout_side(a_rows, pa, left_side=True)
-    pitch += layout_side(b_rows, pb, left_side=False)
 
     pitch.append("</svg>")
     return "<div class='pitchWrap'>" + "".join(pitch) + "</div>"
 
-def render_match_pitch(a_rows: pd.DataFrame, b_rows: pd.DataFrame,
-                       formation_a: str, formation_b: str,
-                       motm_name: Optional[str]) -> None:
-    inner = render_pitch_svg(a_rows, b_rows, formation_a, formation_b, motm_name)
+def render_team_pitch(rows: pd.DataFrame, formation: str, motm_name: Optional[str], left_side: bool, height: int = 520):
+    inner = team_pitch_svg(rows, formation, motm_name, left_side)
     wrapper = (
         "<html><head><meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1'/>"
         "<style>html,body{margin:0;padding:0;background:transparent}</style></head>"
         "<body>" + inner + "</body></html>"
     )
-    st.components.v1.html(wrapper, height=520, scrolling=False)
+    st.components.v1.html(wrapper, height=height, scrolling=False)
 
-# ==============================
-# FACT TABLE / STATS
-# ==============================
+# =============================================================================
+# FACT / STATS
+# =============================================================================
 @st.cache_data(ttl=120)
 def build_fact(players: pd.DataFrame, matches: pd.DataFrame, lineups: pd.DataFrame) -> pd.DataFrame:
     if lineups.empty or matches.empty:
@@ -347,7 +324,6 @@ def build_fact(players: pd.DataFrame, matches: pd.DataFrame, lineups: pd.DataFra
     l = lineups.copy()
     m = matches.copy()
 
-    # Normalize names and basic fields
     l["name"] = l.get("name", pd.Series(index=l.index)).fillna(l.get("player_name")).fillna("").astype(str).map(normalize_name)
     l["goals"] = pd.to_numeric(l.get("goals"), errors="coerce").fillna(0).astype(int)
     l["assists"] = pd.to_numeric(l.get("assists"), errors="coerce").fillna(0).astype(int)
@@ -357,14 +333,17 @@ def build_fact(players: pd.DataFrame, matches: pd.DataFrame, lineups: pd.DataFra
     m["is_draw"] = m.get("is_draw", False).astype(bool)
     for c in ["season","gw","score_a","score_b"]:
         m[c] = pd.to_numeric(m.get(c), errors="coerce").astype("Int64")
-    # join
-    j = l.merge(m[["id","season","gw","team_a","team_b","score_a","score_b","is_draw","motm_name"]],
-                left_on="match_id", right_on="id", how="left", suffixes=("","_m"))
+
+    j = l.merge(
+        m[["id","season","gw","team_a","team_b","score_a","score_b","is_draw","motm_name"]],
+        left_on="match_id", right_on="id", how="left", suffixes=("","_m")
+    )
     j.rename(columns={"id":"match_id"}, inplace=True)
 
-    # result per player
     def row_result(row):
-        if row.get("is_draw") or (pd.notna(row.get("score_a")) and pd.notna(row.get("score_b")) and int(row["score_a"]) == int(row["score_b"])):
+        if bool(row.get("is_draw")) or (
+           pd.notna(row.get("score_a")) and pd.notna(row.get("score_b")) and int(row["score_a"]) == int(row["score_b"])
+        ):
             return "D"
         if row["team"] == "Non-bibs":
             return "W" if int(row["score_a"]) > int(row["score_b"]) else "L"
@@ -372,14 +351,11 @@ def build_fact(players: pd.DataFrame, matches: pd.DataFrame, lineups: pd.DataFra
 
     j["result"] = j.apply(row_result, axis=1)
 
-    # team goals per (match, team)
     tg = j.groupby(["match_id","team"], as_index=False)["goals"].sum().rename(columns={"goals":"team_goals"})
     j = j.merge(tg, on=["match_id","team"], how="left")
-    j["contrib_pct"] = ((j["goals"] + j["assists"]) / j["team_goals"].replace(0, pd.NA) * 100).round(1)
-    j["contrib_pct"] = j["contrib_pct"].fillna(0)
+    j["contrib_pct"] = ((j["goals"] + j["assists"]) / j["team_goals"].replace(0, pd.NA) * 100).round(1).fillna(0)
 
-    # bring photo_url from players if present
-    if not players.empty and "photo_url" in players.columns and "name" in players.columns:
+    if not players.empty and {"name","photo_url"}.issubset(set(players.columns)):
         pp = players[["name","photo_url"]].copy()
         pp["name"] = pp["name"].astype(str).map(normalize_name)
         j = j.merge(pp, on="name", how="left")
@@ -388,7 +364,6 @@ def build_fact(players: pd.DataFrame, matches: pd.DataFrame, lineups: pd.DataFra
 
     return j
 
-# Ratings
 def _scale_0_99(series, floor=35, ceil=95):
     if len(series) == 0 or series.max() == series.min():
         return pd.Series([50]*len(series), index=series.index if hasattr(series, "index") else None)
@@ -401,8 +376,6 @@ def compute_player_ratings(fact: pd.DataFrame, name: str, min_gp_for_ratings=3):
         return {"Finishing": 50, "Playmaking": 50, "Impact": 50, "Overall": 50}
 
     peers = fact.copy()
-
-    # Goals/Assists per game
     gpg = mine.groupby("match_id")["goals"].sum().mean()
     apg = mine.groupby("match_id")["assists"].sum().mean()
     contrib = mine["contrib_pct"].mean()
@@ -422,11 +395,9 @@ def compute_player_ratings(fact: pd.DataFrame, name: str, min_gp_for_ratings=3):
     overall = int(round(0.4*fin + 0.4*ply + 0.2*impact))
     return {"Finishing": fin, "Playmaking": ply, "Impact": impact, "Overall": overall}
 
-# Duos/Nemesis
 def teammates_duos_for(fact: pd.DataFrame, player: str, min_games=3, top_n=5) -> pd.DataFrame:
     mine = fact[fact["name"]==player][["match_id","team"]].drop_duplicates()
-    if mine.empty:
-        return pd.DataFrame()
+    if mine.empty: return pd.DataFrame()
     j = fact.merge(mine, on=["match_id","team"], how="inner")
     j = j[j["name"] != player]
     grp = j.groupby("name").agg(GP=("match_id","nunique"), Win=("result", lambda s: (s=="W").sum()))
@@ -437,9 +408,7 @@ def teammates_duos_for(fact: pd.DataFrame, player: str, min_games=3, top_n=5) ->
 
 def nemesis_for(fact: pd.DataFrame, player: str, min_games=3, top_n=5) -> pd.DataFrame:
     mine = fact[fact["name"]==player][["match_id","team"]].drop_duplicates()
-    if mine.empty:
-        return pd.DataFrame()
-    # opponents = same match_id, opposite team
+    if mine.empty: return pd.DataFrame()
     opp = fact.merge(mine, on="match_id", suffixes=("","_mine"))
     opp = opp[opp["team"] != opp["team_mine"]]
     grp = opp.groupby("name").agg(GP=("match_id","nunique"), Win=("result", lambda s: (s=="W").sum()))
@@ -448,10 +417,10 @@ def nemesis_for(fact: pd.DataFrame, player: str, min_games=3, top_n=5) -> pd.Dat
     grp = grp.reset_index().rename(columns={"name":"Opponent"})
     return grp[["Opponent","GP","Win%"]]
 
-# ==============================
-# HEADER / NAV
-# ==============================
-def header():
+# =============================================================================
+# HEADER (render once; unique keys)
+# =============================================================================
+def header(key_prefix: str = "hdr"):
     top = st.container()
     with top:
         c1, c2, c3 = st.columns([3,2,2])
@@ -460,8 +429,12 @@ def header():
             if "is_admin" not in st.session_state:
                 st.session_state["is_admin"] = False
             if not st.session_state["is_admin"]:
-                pw = st.text_input("Admin password", type="password", key="adm_pw", label_visibility="collapsed", placeholder="Admin password")
-                if st.button("Login", key="adm_login"):
+                pw = st.text_input("Admin password",
+                                   type="password",
+                                   key=f"{key_prefix}_adm_pw",
+                                   label_visibility="collapsed",
+                                   placeholder="Admin password")
+                if st.button("Login", key=f"{key_prefix}_adm_login"):
                     if (pw or "") == ADMIN_PASSWORD:
                         st.session_state["is_admin"] = True
                         st.success("Admin mode on.")
@@ -472,24 +445,19 @@ def header():
                 st.success("Admin mode")
         with c3:
             if st.session_state.get("is_admin"):
-                if st.button("Logout", key="adm_logout"):
+                if st.button("Logout", key=f"{key_prefix}_adm_logout"):
                     st.session_state["is_admin"] = False
                     st.rerun()
 
-# ==============================
-# TEAM QUICK ASSIGN EDITOR
-# ==============================
+# =============================================================================
+# LINEUP EDITOR (tap-assign; mobile-first)
+# =============================================================================
 def _team_names_from(df_team: pd.DataFrame) -> List[str]:
     if df_team is None or df_team.empty:
         return []
     return (
-        df_team.get("name")
-        .fillna(df_team.get("player_name"))
-        .dropna()
-        .astype(str)
-        .map(normalize_name)
-        .unique()
-        .tolist()
+        df_team.get("name").fillna(df_team.get("player_name")).dropna().astype(str)
+        .map(normalize_name).unique().tolist()
     )
 
 def team_quick_assign(team_label: str,
@@ -507,8 +475,7 @@ def team_quick_assign(team_label: str,
 
     st.markdown(f"**{team_label}**  ·  Formation **{formation}**")
     grid = []
-    parts = parts_of(formation)
-    for li, cnt in enumerate(parts, start=1):
+    for li, cnt in enumerate(parts_of(formation), start=1):
         cols = st.columns(cnt, vertical_alignment="center")
         for s in range(1, cnt+1):
             slot_key = f"{keypref}_slot_{li}_{s}"
@@ -563,8 +530,7 @@ def save_team_grid(match_id, season, gw, team_label, formation, grid, df_team):
                 sample[nm] = r
     rows = []
     for (li, s), nm in grid:
-        if not nm:
-            continue
+        if not nm: continue
         base = sample.get(normalize_name(nm), {})
         rows.append({
             "id": str(uuid.uuid4()),
@@ -582,24 +548,19 @@ def save_team_grid(match_id, season, gw, team_label, formation, grid, df_team):
             "slot": int(s),
             "position": ""
         })
-    names = [r["name"] for r in rows]
-    if len(names) != len(set(names)):
-        st.error("Duplicate players on the same team — fix before saving.")
-        return False
-    # Persist (delete-then-insert for this team)
+    # Persist
     svc.table("lineups").delete().eq("match_id", str(match_id)).eq("team", team_label).execute()
     for i in range(0, len(rows), 500):
         svc.table("lineups").insert(rows[i:i+500]).execute()
-    # Save formation changes
+    # Save formation field
     col = "formation_a" if team_label == "Non-bibs" else "formation_b"
     svc.table("matches").update({col: formation}).eq("id", str(match_id)).execute()
     return True
 
-# ==============================
+# =============================================================================
 # PAGES
-# ==============================
+# =============================================================================
 def page_matches():
-    header()
     matches = load_table("matches")
     players = load_table("players")
     lineups = load_table("lineups")
@@ -608,13 +569,12 @@ def page_matches():
         st.info("No matches yet.")
         return
 
-    # Match picker
-    matches["label"] = matches.apply(
-        lambda r: f"S{int(r['season'])} · GW{int(r['gw'])} · {r.get('team_a','Non-bibs')} {int(r.get('score_a') or 0)}–{int(r.get('score_b') or 0)} {r.get('team_b','Bibs')}",
+    opts = matches.sort_values(["season","gw"]).apply(
+        lambda r: (r["id"], f"S{int(r['season'])} · GW{int(r['gw'])} · {r.get('team_a','Non-bibs')} {int(r.get('score_a') or 0)}–{int(r.get('score_b') or 0)} {r.get('team_b','Bibs')}"),
         axis=1
-    )
-    msel = st.selectbox("Select match", matches.sort_values(["season","gw"])[["id","label"]], format_func=lambda r: r["label"], index=len(matches)-1)
-    mid = msel["id"]
+    ).tolist()
+    sel = st.selectbox("Select match", opts, format_func=lambda t: t[1], index=len(opts)-1, key="match_sel")
+    mid = sel[0]
     m = matches[matches["id"]==mid].iloc[0]
 
     # Summary header
@@ -625,27 +585,33 @@ def page_matches():
         f"</div>", unsafe_allow_html=True
     )
 
-    # Formations
+    # Formations (5s vs 7s presets)
     side_count = int(m.get("side_count") or 5)
     presets = PRESETS_5S if side_count == 5 else PRESETS_7S
-    colf1, colf2 = st.columns(2)
-    with colf1:
+    cfa, cfb = st.columns(2)
+    with cfa:
         fa = st.selectbox("Formation (Non-bibs)", presets,
                           index=(presets.index(m.get("formation_a")) if m.get("formation_a") in presets else 0),
                           key=f"fa_{mid}")
-    with colf2:
+    with cfb:
         fb = st.selectbox("Formation (Bibs)", presets,
                           index=(presets.index(m.get("formation_b")) if m.get("formation_b") in presets else 0),
                           key=f"fb_{mid}")
 
-    # Team rows
+    # Lineups for this match
     a_rows = lineups[(lineups["match_id"]==mid) & (lineups["team"]=="Non-bibs")].copy()
     b_rows = lineups[(lineups["match_id"]==mid) & (lineups["team"]=="Bibs")].copy()
 
-    # Pitch
-    render_match_pitch(a_rows, b_rows, fa, fb, m.get("motm_name"))
+    # Two separate pitches (stack on phone, side-by-side on desktop)
+    pa, pb = st.columns(2)
+    with pa:
+        st.subheader("Non-bibs")
+        render_team_pitch(a_rows, fa, m.get("motm_name"), left_side=True, height=520)
+    with pb:
+        st.subheader("Bibs")
+        render_team_pitch(b_rows, fb, m.get("motm_name"), left_side=False, height=520)
 
-    # Editor (Admin)
+    # Admin: arrange lineups
     if st.session_state.get("is_admin"):
         st.markdown("### Arrange lineups")
         a_names = _team_names_from(a_rows)
@@ -659,8 +625,7 @@ def page_matches():
                 _service().table("lineups").delete().eq("match_id", str(mid)).eq("team", "Non-bibs").execute(); st.rerun()
             if clickA["save"]:
                 if save_team_grid(mid, m["season"], m["gw"], "Non-bibs", fa, gridA, a_rows):
-                    st.success("Non-bibs saved.")
-                    refresh_all(); st.rerun()
+                    st.success("Non-bibs saved."); refresh_all(); st.rerun()
         with colB:
             gridB, clickB = team_quick_assign("Bibs", fb, b_rows, b_names, keypref=f"B_{mid}")
             if clickB["auto"]:
@@ -669,8 +634,7 @@ def page_matches():
                 _service().table("lineups").delete().eq("match_id", str(mid)).eq("team", "Bibs").execute(); st.rerun()
             if clickB["save"]:
                 if save_team_grid(mid, m["season"], m["gw"], "Bibs", fb, gridB, b_rows):
-                    st.success("Bibs saved.")
-                    refresh_all(); st.rerun()
+                    st.success("Bibs saved."); refresh_all(); st.rerun()
 
         # Quick goals/assists editor
         st.markdown("### Edit goals / assists")
@@ -682,7 +646,7 @@ def page_matches():
             temp["goals"] = temp["goals"].astype(int)
             temp["assists"] = temp["assists"].astype(int)
             temp = temp.rename(columns={"name":"Player","goals":"G","assists":"A"})
-            st.dataframe(hide_index(temp[["Player","G","A"]]), use_container_width=True)
+            st.dataframe(temp[["Player","G","A"]], use_container_width=True, hide_index=True)
             with st.form(f"ga_{label}_{mid}"):
                 p = st.selectbox("Player", temp["Player"].tolist(), key=f"ga_sel_{label}_{mid}")
                 g = st.number_input("Goals", 0, 50, int(temp[temp["Player"]==p]["G"].iloc[0]) if not temp.empty else 0, key=f"ga_g_{label}_{mid}")
@@ -691,21 +655,18 @@ def page_matches():
                 if ok:
                     rid = df_team[df_team["name"]==p]["id"].iloc[0]
                     _service().table("lineups").update({"goals": int(g), "assists": int(a)}).eq("id", rid).execute()
-                    st.success("Updated.")
-                    refresh_all(); st.rerun()
+                    st.success("Updated."); refresh_all(); st.rerun()
         c1, c2 = st.columns(2)
         with c1: _edit_team(a_rows, "A")
         with c2: _edit_team(b_rows, "B")
 
 def page_stats():
-    header()
     players = load_table("players")
     matches = load_table("matches")
     lineups = load_table("lineups")
     fact = build_fact(players, matches, lineups)
     if fact.empty:
-        st.info("No stats yet.")
-        return
+        st.info("No stats yet."); return
 
     seasons = sorted([int(s) for s in fact["season"].dropna().unique().tolist()])
     seasons = ["All"] + seasons
@@ -722,7 +683,6 @@ def page_stats():
     df = fact.copy()
     if sel_season != "All":
         df = df[df["season"] == int(sel_season)]
-
     if last_n and last_n > 0:
         df = df.sort_values(["season","gw"]).groupby("name").tail(int(last_n))
 
@@ -739,22 +699,19 @@ def page_stats():
     agg["G+A"] = agg["goals"] + agg["assists"]
     agg["Contribution%"] = agg["contrib"].round(1)
     agg = agg.drop(columns=["contrib"])
-
     sort_by = {"G+A":"G+A","Goals":"goals","Assists":"assists","Contribution%":"Contribution%","Win%":"Win%","MOTM":"G+A"}[metric]
     agg = agg[agg["GP"] >= int(min_gp)].sort_values([sort_by,"GP"], ascending=[False, False])
 
     nice = agg.rename(columns={"name":"Player","goals":"G","assists":"A"})
-    st.dataframe(hide_index(nice[["Player","GP","W","D","L","Win%","G","A","G+A","Contribution%"]]), use_container_width=True)
+    st.dataframe(nice[["Player","GP","W","D","L","Win%","G","A","G+A","Contribution%"]], use_container_width=True, hide_index=True)
 
 def page_players():
-    header()
     players = load_table("players")
     matches = load_table("matches")
     lineups = load_table("lineups")
     fact = build_fact(players, matches, lineups)
     if players.empty:
-        st.info("No players.")
-        return
+        st.info("No players."); return
 
     names = players["name"].dropna().astype(str).map(normalize_name).sort_values().tolist()
     sel = st.selectbox("Player", names, key="p_sel")
@@ -778,8 +735,7 @@ def page_players():
     with c2:
         mine = fact[fact["name"]==sel]
         if mine.empty:
-            st.info("No appearances yet.")
-            return
+            st.info("No appearances yet."); return
 
         gp = mine["match_id"].nunique()
         w = int((mine["result"]=="W").sum())
@@ -790,79 +746,50 @@ def page_players():
         contrib = float(mine["contrib_pct"].mean() or 0)
 
         cc = st.columns(4)
-        for label, val in [("GP",gp), ("W-D-L", f"{w}-{d}-{l}"), ("Win %", f"{winpct:.1f}%"), ("G + A", ga)]:
-            cc[0].markdown(
-                f"<div class='statCard'><div class='statLabel'>{label}</div>"
-                f"<div class='statValue'>{val}</div></div>",
-                unsafe_allow_html=True
-            )
-            cc = cc[1:] + cc[:1]
+        cc[0].markdown(f"<div class='statCard'><div class='statLabel'>GP</div><div class='statValue'>{gp}</div></div>", unsafe_allow_html=True)
+        cc[1].markdown(f"<div class='statCard'><div class='statLabel'>W-D-L</div><div class='statValue'>{w}-{d}-{l}</div></div>", unsafe_allow_html=True)
+        cc[2].markdown(f"<div class='statCard'><div class='statLabel'>Win %</div><div class='statValue'>{winpct:.1f}%</div></div>", unsafe_allow_html=True)
+        cc[3].markdown(f"<div class='statCard'><div class='statLabel'>G + A</div><div class='statValue'>{ga}</div></div>", unsafe_allow_html=True)
 
-        cc = st.columns(4)
-        for label, val in [
-            ("Goals", g),
-            ("Assists", a),
-            ("Avg Contrib %", f"{contrib:.1f}%"),
-            ("G+A / G", f"{(ga/gp if gp else 0):.2f}"),
-        ]:
-            cc[0].markdown(
-                f"<div class='statCard'><div class='statLabel'>{label}</div>"
-                f"<div class='statValue'>{val}</div></div>",
-                unsafe_allow_html=True
-            )
-            cc = cc[1:] + cc[:1]
+        cc2 = st.columns(4)
+        cc2[0].markdown(f"<div class='statCard'><div class='statLabel'>Goals</div><div class='statValue'>{g}</div></div>", unsafe_allow_html=True)
+        cc2[1].markdown(f"<div class='statCard'><div class='statLabel'>Assists</div><div class='statValue'>{a}</div></div>", unsafe_allow_html=True)
+        cc2[2].markdown(f"<div class='statCard'><div class='statLabel'>Avg Contrib %</div><div class='statValue'>{contrib:.1f}%</div></div>", unsafe_allow_html=True)
+        cc2[3].markdown(f"<div class='statCard'><div class='statLabel'>G+A / G</div><div class='statValue'>{(ga/gp if gp else 0):.2f}</div></div>", unsafe_allow_html=True)
 
-    # Ratings row
     ratings = compute_player_ratings(fact, sel, min_gp_for_ratings=3)
     r1, r2, r3, r4 = st.columns(4)
-    for c, (lab, key) in zip(
-        [r1,r2,r3,r4],
-        [("Finishing","Finishing"),("Playmaking","Playmaking"),("Impact","Impact"),("Overall","Overall")]
-    ):
-        c.markdown(
-            f"<div class='statCard'><div class='statLabel'>{lab}</div>"
-            f"<div class='statValue'>{int(ratings[key])}</div></div>",
-            unsafe_allow_html=True
-        )
+    r1.markdown(f"<div class='statCard'><div class='statLabel'>Finishing</div><div class='statValue'>{int(ratings['Finishing'])}</div></div>", unsafe_allow_html=True)
+    r2.markdown(f"<div class='statCard'><div class='statLabel'>Playmaking</div><div class='statValue'>{int(ratings['Playmaking'])}</div></div>", unsafe_allow_html=True)
+    r3.markdown(f"<div class='statCard'><div class='statLabel'>Impact</div><div class='statValue'>{int(ratings['Impact'])}</div></div>", unsafe_allow_html=True)
+    r4.markdown(f"<div class='statCard'><div class='statLabel'>Overall</div><div class='statValue'>{int(ratings['Overall'])}</div></div>", unsafe_allow_html=True)
 
-    # Form & recent games
-    N = st.number_input("Last N games (form)", 3, 30, 5, 1, key="pf_lastN")
+    st.markdown("#### Recent games / form")
+    N = st.number_input("Last N games", 3, 30, 5, 1, key="pf_lastN")
     last = mine.sort_values(["season","gw"]).tail(int(N))
     form = "".join(last["result"].map({"W":"W","D":"D","L":"L"}).tolist())
     st.markdown(f"<div class='badge'>Recent form: <strong>{form}</strong></div>", unsafe_allow_html=True)
-
-    st.markdown("#### Recent games")
     recent = mine.sort_values(["season","gw"], ascending=[False,False])[["season","gw","team","goals","assists","result"]].head(10)
     recent = recent.rename(columns={"season":"Season","gw":"GW","team":"Team","goals":"G","assists":"A","result":"Res"})
-    st.dataframe(hide_index(recent.reset_index(drop=True)), use_container_width=True)
+    st.dataframe(recent.reset_index(drop=True), use_container_width=True, hide_index=True)
 
-    # Player-specific Duos & Nemesis
     st.markdown("#### Teammate Duos")
     colD1, colD2 = st.columns(2)
-    with colD1:
-        min_joint = st.number_input("Min games together", 1, 50, 3, 1, key="duo_min")
-    with colD2:
-        rows = st.number_input("Rows", 3, 50, 5, 1, key="duo_rows")
+    with colD1: min_joint = st.number_input("Min games together", 1, 50, 3, 1, key="duo_min")
+    with colD2: rows = st.number_input("Rows", 3, 50, 5, 1, key="duo_rows")
     duos = teammates_duos_for(fact, sel, int(min_joint), int(rows))
-    if not duos.empty:
-        st.dataframe(hide_index(duos), use_container_width=True)
-    else:
-        st.info("No duo data yet.")
+    if not duos.empty: st.dataframe(duos, use_container_width=True, hide_index=True)
+    else: st.info("No duo data yet.")
 
     st.markdown("#### Nemesis (toughest opponents)")
     colN1, colN2 = st.columns(2)
-    with colN1:
-        min_meet = st.number_input("Min head-to-head", 1, 50, 3, 1, key="nem_min")
-    with colN2:
-        nrows = st.number_input("Rows ", 3, 50, 5, 1, key="nem_rows")
+    with colN1: min_meet = st.number_input("Min head-to-head", 1, 50, 3, 1, key="nem_min")
+    with colN2: nrows = st.number_input("Rows ", 3, 50, 5, 1, key="nem_rows")
     nem = nemesis_for(fact, sel, int(min_meet), int(nrows))
-    if not nem.empty:
-        st.dataframe(hide_index(nem), use_container_width=True)
-    else:
-        st.info("No nemesis data yet.")
+    if not nem.empty: st.dataframe(nem, use_container_width=True, hide_index=True)
+    else: st.info("No nemesis data yet.")
 
 def page_awards():
-    header()
     matches = load_table("matches")
     awards = load_table("awards")
 
@@ -872,7 +799,7 @@ def page_awards():
     else:
         mm = matches[['season','gw','motm_name']].dropna().sort_values(["season","gw"])
         mm = mm.rename(columns={"motm_name":"MOTM"})
-        st.dataframe(hide_index(mm), use_container_width=True)
+        st.dataframe(mm, use_container_width=True, hide_index=True)
 
     st.markdown("### Player of the Month")
     if awards.empty:
@@ -881,13 +808,11 @@ def page_awards():
         potm = awards[awards["type"]=="POTM"][["season","month","player_name","notes"]].rename(
             columns={"player_name":"POTM"}
         ).sort_values(["season","month"])
-        st.dataframe(hide_index(potm), use_container_width=True)
+        st.dataframe(potm, use_container_width=True, hide_index=True)
 
 def page_player_manager():
-    header()
     if not st.session_state.get("is_admin"):
-        st.info("Admin only.")
-        return
+        st.info("Admin only."); return
 
     players = load_table("players")
     if not players.empty:
@@ -909,7 +834,7 @@ def page_player_manager():
         if up is not None:
             img = _png_from_uploaded_file(up)
             if img is not None:
-                img = _square_thumbnail(img, size=384)
+                img = _square_thumbnail(img, size=420)
                 buf = io.BytesIO()
                 img.save(buf, format="PNG", optimize=True)
                 key = f"{uuid.uuid4().hex}.png"
@@ -925,18 +850,15 @@ def page_player_manager():
                 photo_url = ""
         with colB:
             if st.button("Save player", type="primary", key="pm_save"):
-                payload = {
-                    "name": (new_name or "").strip(),
-                    "notes": (notes or "").strip(),
-                    "photo_url": (photo_url or "").strip(),
-                }
+                payload = {"name": (new_name or "").strip(),
+                           "notes": (notes or "").strip(),
+                           "photo_url": (photo_url or "").strip()}
                 try:
                     if current is not None:
                         _service().table("players").update(payload).eq("id", current["id"]).execute()
                     else:
                         _service().table("players").upsert(payload, on_conflict="name").execute()
-                    st.success("Saved.")
-                    refresh_all(); st.rerun()
+                    st.success("Saved."); refresh_all(); st.rerun()
                 except Exception as e:
                     st.error(f"Save failed: {e}")
 
@@ -957,12 +879,12 @@ def page_player_manager():
             st.write("")
             st.markdown(f"<div class='small'>Notes:</div><div class='card'>{notes.strip()}</div>", unsafe_allow_html=True)
 
-# ==============================
-# ROUTER
-# ==============================
+# =============================================================================
+# ROUTER (header called ONCE)
+# =============================================================================
 def run_app():
+    header("hdr")  # render once to avoid duplicate widget IDs
     pages = ["Matches", "Stats", "Players", "Awards", "Player Manager"]
-    header()
     page = st.sidebar.radio("Go to", pages, index=0)
     if page == "Matches": page_matches()
     elif page == "Stats": page_stats()
